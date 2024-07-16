@@ -1,0 +1,83 @@
+Root
+|---- Flicker8k_Dataset  [ contains all the images ]
+|---- Flickr8k_text
+ |---- Flickr_8k.token.txt [ contains captions for all images. 
+|    each line has image_id, caption_number, caption_text ]
+ |---- Flickr_8k.trainImages.txt [ contains captions for training images. 
+|    each line has image_id, caption_number, caption_text ]
+ |---- Flickr_8k.devImages.txt [ contains captions for dev images. 
+|    each line has image_id, caption_number, caption_text ]
+ |---- Flickr_8k.testImages.txt [ contains captions for test images. 
+|    each line has image_id, caption_number, caption_text ]
+Prepare Image Datadef preprocess_image(image_src):
+    img = tf.io.read_file(image_src)
+    img = tf.image.decode_jpeg(img, channels=3)
+    img = tf.image.resize(img, (299, 299))
+    img = tf.keras.applications.inception_v3.preprocess_input(img)
+    return img
+
+class CaptionSequenceModel(tf.keras.Model):  
+    
+    def __init__(self, embedding_dim, vocab_size):
+        super(CaptionSequenceModel, self).__init__()
+        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
+        self.lstm1 = tf.keras.layers.LSTM(512 , return_sequences=True)
+        self.lstm2 = tf.keras.layers.LSTM(256 , return_sequences=False)
+        self.dropout = tf.keras.layers.Dropout(0.5)
+def call(self, x, training = False):
+        # x shape after passing through embedding == (batch_size, 1, embedding_dim)
+        x = self.embedding(x)
+        if training:
+            x = self.dropout(x, training = training)
+        x = self.lstm1(x)
+        if training:
+            x = self.dropout(x, training = training)
+        x = self.lstm2(x)
+        return x
+
+def build_model(vocab_size , embeddings_dim, max_length, training = False):
+    text_inputs_tensor = tf.keras.layers.Input(shape=(max_length,))
+    encoder_model = ImageEncoderModel()(image_input_tensor, training = training)
+    sequence_model = CaptionSequenceModel(embeddings_dim, vocab_size)(text_inputs_tensor, training = training)
+    decoder1 = tf.keras.layers.add([encoder_model , sequence_model])
+    decoder2 = tf.keras.layers.Dense(256 , activation='relu')(decoder1)
+    decoder3 = tf.keras.layers.Dense(512 , activation='relu')(decoder2)
+    outputs = tf.keras.layers.Dense(vocab_size , activation='softmax')(decoder3)
+    # combine both image and text model
+    final_model = tf.keras.models.Model([image_input_tensor , text_inputs_tensor] , outputs)
+    final_model.compile(loss='categorical_crossentropy' , optimizer = 'adam')
+    return final_model
+
+batch_size = 100
+buffer_size = 20
+embedding_dim = 512
+epochs = 10
+vocab_size = len(tokenizer.word_index) + 1
+max_len = fn_max_length(text_corpus)
+print('vocab size' , vocab_size)
+print('max len:', max_len)
+is_training = True
+model = build_model(vocab_size , embedding_dim, max_len, is_training)
+imageX, textX, trainY = prepare_training_data(caption_dict, tokenizer, max_len, vocab_size)
+checkpoint_path = "./checkpoints/train"
+ckpt = tf.train.Checkpoint(model = model)
+ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+start_epoch = 0
+if ckpt_manager.latest_checkpoint:
+    start_epoch = int(ckpt_manager.latest_checkpoint.split('-')[-1])
+    # restoring the latest checkpoint in checkpoint_path
+    ckpt.restore(ckpt_manager.latest_checkpoint)
+    
+trainX = tf.data.Dataset.from_tensor_slices((imageX, textX))
+trainy_tensor = tf.data.Dataset.from_tensor_slices((trainY))
+dataset = tf.data.Dataset.zip((trainX, trainy_tensor))
+dataset = dataset.shuffle(buffer_size).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE)
+for epoch in range(start_epoch, epochs):
+    print('Epoch : ', epoch)
+    for (batch, (X, y)) in enumerate(dataset):    
+        model.fit(X, 
+                  y, 
+                  epochs = 1,  
+                  shuffle=True, 
+                  verbose = 2)
+        ckpt_manager.save()
