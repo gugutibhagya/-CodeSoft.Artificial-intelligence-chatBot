@@ -1,0 +1,185 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=64.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tic-tac-toe"
+version = "1.0.0"
+# tic_tac_toe/logic/models.py
+
+import enum
+
+class Mark(enum.Enum):
+    CROSS = "X"
+    NAUGHT = "O"
+>>> def preview(cells):
+...     print(cells[:3], cells[3:6], cells[6:], sep="\n")
+
+>>> preview("XXOXO O  ")
+XXO
+XO
+O
+
+>>> preview("OXXXXOOOX")
+OXX
+XXO
+OOX
+
+>>> preview("OOOXXOXX ")
+OOO
+XXO
+XX
+# tic_tac_toe/logic/models.py
+
+import enum
+import re
+from dataclasses import dataclass
+from functools import cached_property
+
+# ...
+
+@dataclass(frozen=True)
+class Grid:
+    cells: str = " " * 9
+
+    def __post_init__(self) -> None:
+        if not re.match(r"^[\sXO]{9}$", self.cells):
+            raise ValueError("Must contain 9 cells of: X, O, or space")
+
+    @cached_property
+    def x_count(self) -> int:
+        return self.cells.count("X")
+
+    @cached_property
+    def o_count(self) -> int:
+        return self.cells.count("O")
+
+    @cached_property
+    def empty_count(self) -> int:
+        return self.cells.count(" ")
+# tic_tac_toe/logic/models.py
+
+# ...
+
+@dataclass(frozen=True)
+class GameState:
+    # ...
+
+    @cached_property
+    def current_mark(self) -> Mark:
+        ...
+
+    @cached_property
+    def game_not_started(self) -> bool:
+        ...
+
+    @cached_property
+    def game_over(self) -> bool:
+        return self.winner is not None or self.tie
+# tic_tac_toe/logic/validators.py
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tic_tac_toe.logic.models import GameState, Grid, Mark
+
+import re
+
+from tic_tac_toe.logic.exceptions import InvalidGameState
+
+def validate_grid(grid: Grid) -> None:
+    ...
+
+def validate_game_state(game_state: GameState) -> None:
+    ...
+
+def validate_number_of_marks(grid: Grid) -> None:
+    ...
+
+def validate_starting_mark(grid: Grid, starting_mark: Mark) -> None:
+    ...
+
+def validate_winner(
+    grid: Grid, starting_mark: Mark, winner: Mark | None
+) -> None:
+    if winner == "X":
+        if starting_mark == "X":
+            if grid.x_count <= grid.o_count:
+                raise InvalidGameState("Wrong number of Xs")
+        else:
+            if grid.x_count != grid.o_count:
+                raise InvalidGameState("Wrong number of Xs")
+    elif winner == "O":
+        if starting_mark == "O":
+            if grid.o_count <= grid.x_count:
+                raise InvalidGameState("Wrong number of Os")
+        else:
+            if grid.o_count != grid.x_count:
+                raise InvalidGameState("Wrong number of Os")
+# tic_tac_toe/game/engine.py
+
+from dataclasses import dataclass
+
+from tic_tac_toe.game.players import Player
+from tic_tac_toe.game.renderers import Renderer
+from tic_tac_toe.logic.exceptions import InvalidMove
+from tic_tac_toe.logic.models import GameState, Grid, Mark
+from tic_tac_toe.logic.validators import validate_players
+
+@dataclass(frozen=True)
+class TicTacToe:
+    player1: Player
+    player2: Player
+    renderer: Renderer
+
+    def __post_init__(self):
+        validate_players(self.player1, self.player2)
+
+    def play(self, starting_mark: Mark = Mark("X")) -> None:
+        game_state = GameState(Grid(), starting_mark)
+        while True:
+            self.renderer.render(game_state)
+            if game_state.game_over:
+                break
+            player = self.get_current_player(game_state)
+            try:
+                game_state = player.make_move(game_state)
+            except InvalidMove:
+                pass
+
+    def get_current_player(self, game_state: GameState) -> Player:
+        if game_state.current_mark is self.player1.mark:
+            return self.player1
+        else:
+            return self.player2
+PLAYER_CLASSES = {
+    "human": ConsolePlayer,
+    "random": RandomComputerPlayer,
+    "minimax": MinimaxComputerPlayer,
+}
+
+class Args(NamedTuple):
+    player1: Player
+    player2: Player
+    starting_mark: Mark
+
+def parse_args() -> Args:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-X",
+        dest="player_x",
+        choices=PLAYER_CLASSES.keys(),
+        default="human",
+    )
+    parser.add_argument(
+        "-O",
+        dest="player_o",
+        choices=PLAYER_CLASSES.keys(),
+        default="minimax",
+    )
+
+    # ...
